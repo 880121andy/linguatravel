@@ -177,8 +177,7 @@ class LinguaTravelUI:
             gr.Blocks: Configured Gradio interface
         """
         with gr.Blocks(
-            title=Config.APP_TITLE,
-            theme=gr.themes.Soft(primary_hue="blue", secondary_hue="green")
+            title=Config.APP_TITLE
         ) as interface:
             
             gr.Markdown(f"# {Config.APP_TITLE}")

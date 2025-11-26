@@ -28,14 +28,14 @@ class LinguaTravelUI:
     def handle_text_message(
         self, 
         message: str, 
-        history: List[List[str]]
-    ) -> Tuple[str, List[List[str]]]:
+        history: List[dict]
+    ) -> Tuple[str, List[dict]]:
         """
         Handle text message from user.
         
         Args:
             message: User's text message
-            history: Chat history
+            history: Chat history (list of dicts with 'role' and 'content')
             
         Returns:
             tuple: (empty string for clearing input, updated history)
@@ -44,14 +44,17 @@ class LinguaTravelUI:
             return "", history
         
         # Add user message to history
-        history.append([message, None])
+        history.append({"role": "user", "content": message})
+        
+        # Add assistant message placeholder
+        history.append({"role": "assistant", "content": ""})
         
         # Generate response
         response = ""
         for chunk in self.ollama.generate_response(message, self.current_language):
             response += chunk
             # Update the last message in history with streaming response
-            history[-1][1] = response
+            history[-1]["content"] = response
             yield "", history
         
         return "", history
@@ -59,14 +62,14 @@ class LinguaTravelUI:
     def handle_audio_message(
         self,
         audio_path: Optional[str],
-        history: List[List[str]]
-    ) -> Tuple[str, List[List[str]]]:
+        history: List[dict]
+    ) -> Tuple[str, List[dict]]:
         """
         Handle audio message from user.
         
         Args:
             audio_path: Path to recorded audio file
-            history: Chat history
+            history: Chat history (list of dicts with 'role' and 'content')
             
         Returns:
             tuple: (empty string, updated history)
@@ -77,20 +80,25 @@ class LinguaTravelUI:
         # Transcribe audio
         transcription = self.whisper.transcribe_audio_with_feedback(audio_path)
         
-        # Add transcription to history
-        history.append([f"🎤 Voice Input", transcription])
+        # Add transcription feedback to history
+        history.append({"role": "assistant", "content": f"🎤 **Voice Input Detected**\n\n{transcription}"})
         
-        # Extract the actual text from transcription feedback
+        # Extract the actual text from transcription
         result = self.whisper.transcribe_audio(audio_path)
         if result.get("text") and not result.get("error"):
             user_text = result["text"]
             
+            # Add user's transcribed message
+            history.append({"role": "user", "content": user_text})
+            
+            # Add assistant message placeholder
+            history.append({"role": "assistant", "content": ""})
+            
             # Generate response to the transcribed text
-            history.append([user_text, None])
             response = ""
             for chunk in self.ollama.generate_response(user_text, self.current_language):
                 response += chunk
-                history[-1][1] = response
+                history[-1]["content"] = response
                 yield "", history
         
         return "", history
@@ -98,14 +106,14 @@ class LinguaTravelUI:
     def handle_quick_phrase(
         self,
         phrase_key: str,
-        history: List[List[str]]
-    ) -> List[List[str]]:
+        history: List[dict]
+    ) -> List[dict]:
         """
         Handle quick phrase button click.
         
         Args:
             phrase_key: The key of the quick phrase
-            history: Chat history
+            history: Chat history (list of dicts with 'role' and 'content')
             
         Returns:
             list: Updated history
@@ -117,14 +125,17 @@ class LinguaTravelUI:
         # Format with current language
         phrase = phrase_template.replace("{language}", self.current_language)
         
-        # Add to history
-        history.append([phrase, None])
+        # Add user message to history
+        history.append({"role": "user", "content": phrase})
+        
+        # Add assistant message placeholder
+        history.append({"role": "assistant", "content": ""})
         
         # Generate response
         response = ""
         for chunk in self.ollama.generate_response(phrase, self.current_language):
             response += chunk
-            history[-1][1] = response
+            history[-1]["content"] = response
             yield history
         
         return history

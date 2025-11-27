@@ -26,10 +26,10 @@ def to_internal_history(history: Optional[Union[List[dict], List[Tuple[str, str]
         return []
     
     if GRADIO_V6:
-        return list(history) if history else []
+        return list(history)
     
     # Check if already in dict format
-    if history and isinstance(history[0], dict) and "role" in history[0]:
+    if isinstance(history[0], dict) and "role" in history[0]:
         return list(history)
     
     # Convert from list of tuples (legacy format)
@@ -58,25 +58,34 @@ def to_gradio_history(history: List[dict]) -> Union[List[dict], List[Tuple[str, 
         return history
     
     # Convert to legacy tuple format for older Gradio
+    # Group messages into (user, assistant) pairs
     legacy = []
     i = 0
     while i < len(history):
-        user_content = None
-        assistant_content = None
+        user_content = ""
+        assistant_content = ""
         
-        # Get user message
-        if i < len(history) and history[i].get("role") == "user":
-            user_content = history[i].get("content", "")
+        # Collect consecutive user messages
+        while i < len(history) and history[i].get("role") == "user":
+            if user_content:
+                user_content += "\n"
+            user_content += history[i].get("content", "")
             i += 1
         
-        # Get assistant message
-        if i < len(history) and history[i].get("role") == "assistant":
-            assistant_content = history[i].get("content", "")
+        # Collect consecutive assistant messages
+        while i < len(history) and history[i].get("role") == "assistant":
+            if assistant_content:
+                assistant_content += "\n"
+            assistant_content += history[i].get("content", "")
             i += 1
         
         # Only add if we have at least one message
-        if user_content is not None or assistant_content is not None:
-            legacy.append((user_content or "", assistant_content or ""))
+        if user_content or assistant_content:
+            legacy.append((user_content, assistant_content))
+        
+        # Handle any unexpected role by skipping
+        if i < len(history) and history[i].get("role") not in ("user", "assistant"):
+            i += 1
     
     return legacy
 

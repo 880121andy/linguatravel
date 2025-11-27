@@ -4,43 +4,47 @@ TARGET: Gradio 6.0+ (Implicit Messages Mode)
 """
 
 import gradio as gr
-from typing import List, Tuple, Optional, Union
+from typing import List, Tuple, Optional, Union, Any
 from packaging import version
 from .config import Config
 from .ollama_service import OllamaService
 from .whisper_service import WhisperService
+from .utils.history import normalize_history
 
 # Compatibility shim for Gradio 6+ vs older versions
 GRADIO_V6 = version.parse(gr.__version__) >= version.parse("6.0.0")
 
 
-def to_internal_history(history: Optional[Union[List[dict], List[Tuple[str, str]]]]) -> List[dict]:
+def to_internal_history(history: Optional[Any]) -> List[dict]:
     """
     Convert incoming Gradio history payloads to internal dict-list format.
     
-    For Gradio 6+: history is already in dict format, return as-is.
-    For older Gradio: history is list of tuples [(user_msg, assistant_msg), ...],
-                      convert to [{"role": "user", "content": ...}, {"role": "assistant", "content": ...}, ...]
+    Accepts various formats including:
+    - Gradio 6.x format: list of [user_msg, bot_msg] pairs
+    - Gradio 7.x format: list of dicts with role/content keys
+    - Other formats: normalized first via normalize_history()
+    
+    Returns:
+        List of dicts with "role" and "content" keys.
     """
     if not history:
         return []
     
-    if GRADIO_V6:
-        return list(history)
-    
-    # Check if already in dict format
+    # Check if already in internal dict format (role/content dicts)
     if isinstance(history[0], dict) and "role" in history[0]:
         return list(history)
     
-    # Convert from list of tuples (legacy format)
+    # Normalize the history first to Gradio 6.x format (list of [user, bot] pairs)
+    # This handles various input formats including v7 dicts, tuples, etc.
+    normalized = normalize_history(history)
+    
+    # Convert normalized pairs to internal dict format
     internal = []
-    for item in history:
-        if isinstance(item, (list, tuple)) and len(item) == 2:
-            user_msg, assistant_msg = item
-            if user_msg is not None:
-                internal.append({"role": "user", "content": str(user_msg)})
-            if assistant_msg is not None:
-                internal.append({"role": "assistant", "content": str(assistant_msg)})
+    for user_msg, assistant_msg in normalized:
+        if user_msg:
+            internal.append({"role": "user", "content": user_msg})
+        if assistant_msg:
+            internal.append({"role": "assistant", "content": assistant_msg})
     return internal
 
 

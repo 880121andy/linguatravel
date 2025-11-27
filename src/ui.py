@@ -1,7 +1,7 @@
 """
 Gradio UI for LinguaTravel application.
 Creates an interactive interface for language learning.
-Compatible with Gradio 3.x (Legacy Mode)
+Fixed for Gradio 3.x compatibility (Mixed Syntax)
 """
 
 import gradio as gr
@@ -39,7 +39,7 @@ class LinguaTravelUI:
         
         history = history or []
         
-        # [Legacy] Append [User Message, Placeholder]
+        # [Legacy Format] Append [User Message, Placeholder]
         history.append([message, ""])
         
         # Generate response
@@ -68,7 +68,7 @@ class LinguaTravelUI:
         # Transcribe audio
         transcription = self.whisper.transcribe_audio_with_feedback(audio_path)
         
-        # [Legacy] Use [None, Message] to show a system/status message
+        # [Legacy Format] Use [None, Message] to show a system/status message
         history.append([None, f"🎤 **Voice Input Detected**\n\n{transcription}"])
         
         # Extract the actual text from transcription
@@ -76,7 +76,7 @@ class LinguaTravelUI:
         if result.get("text") and not result.get("error"):
             user_text = result["text"]
             
-            # [Legacy] Append [User Text, Placeholder]
+            # [Legacy Format] Append [User Text, Placeholder]
             history.append([user_text, ""])
             
             # Generate response to the transcribed text
@@ -105,7 +105,7 @@ class LinguaTravelUI:
         # Format with current language
         phrase = phrase_template.replace("{language}", self.current_language)
         
-        # [Legacy] Append [User Message, Placeholder]
+        # [Legacy Format] Append [User Message, Placeholder]
         history.append([phrase, ""])
         
         # Generate response
@@ -165,7 +165,7 @@ class LinguaTravelUI:
                 label="Conversation",
                 height=400,
                 show_label=True
-                # 🔴 FIX: 移除了 type="messages"，因為舊版不支援
+                # 這裡不需要 type="messages" (相容舊版)
             )
             
             with gr.Row():
@@ -177,7 +177,7 @@ class LinguaTravelUI:
                     )
                 with gr.Column(scale=1):
                     audio_input = gr.Audio(
-                        source="microphone", # 舊版可能用 source 而不是 sources
+                        sources=["microphone"], # 修正：這裡改回 sources，符合你的版本
                         type="filepath",
                         label="🎤 Or speak"
                     )
@@ -187,7 +187,7 @@ class LinguaTravelUI:
             with gr.Row():
                 quick_buttons = []
                 for phrase_key in Config.QUICK_PHRASES.keys():
-                    btn = gr.Button(phrase_key) # size="sm" 舊版可能不支援，先拿掉保險
+                    btn = gr.Button(phrase_key) 
                     quick_buttons.append((phrase_key, btn))
             
             # Action buttons
@@ -204,7 +204,6 @@ class LinguaTravelUI:
                 outputs=[text_input, chatbot]
             )
             
-            # 舊版 audio 處理可能略有不同，但通常 change 事件是通用的
             audio_input.change(
                 self.handle_audio_message,
                 inputs=[audio_input, chatbot],

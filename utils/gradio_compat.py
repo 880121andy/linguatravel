@@ -3,7 +3,7 @@ import importlib
 
 try:
     from packaging.version import parse as parse_version
-except Exception:
+except (ImportError, ModuleNotFoundError):
     def parse_version(v: str):
         return tuple(int(x) for x in v.split(".") if x.isdigit())
 
@@ -12,7 +12,7 @@ def gradio_version() -> Any:
     try:
         gr = importlib.import_module("gradio")
         return parse_version(getattr(gr, "__version__", "0"))
-    except Exception:
+    except (ImportError, ModuleNotFoundError, AttributeError):
         return parse_version("0")
 
 
@@ -94,7 +94,7 @@ def normalize_history_for_gradio_v3(history: Any) -> List[Tuple[str, str]]:
                 b = ""
             pairs.append((u, b))
         return pairs
-    except Exception:
+    except (TypeError, ValueError, AttributeError):
         return []
 
 
@@ -102,12 +102,4 @@ def ensure_chat_history_compatible(history: Any) -> List[Tuple[str, str]]:
     """
     Public helper: returns chat history in v3 format (list of (user, assistant) pairs).
     """
-    ver = gradio_version()
-    try:
-        if isinstance(ver, tuple) or (hasattr(ver, "major") and getattr(ver, "major", 0) == 3):
-            return normalize_history_for_gradio_v3(history)
-        if (hasattr(ver, "major") and getattr(ver, "major", 0) >= 6) or (isinstance(ver, tuple) and ver[0] >= 6):
-            return normalize_history_for_gradio_v3(history)
-    except Exception:
-        return normalize_history_for_gradio_v3(history)
     return normalize_history_for_gradio_v3(history)

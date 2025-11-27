@@ -9,7 +9,6 @@ from packaging import version
 from .config import Config
 from .ollama_service import OllamaService
 from .whisper_service import WhisperService
-from .utils.history import normalize_history
 
 # Import the compatibility shim for handling v6/v7 history formats in v3
 from utils.gradio_compat import ensure_chat_history_compatible

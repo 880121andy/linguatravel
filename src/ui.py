@@ -1,6 +1,6 @@
 """
 Gradio UI for LinguaTravel application.
-TARGET: Gradio 6.0.1 (Strict Dictionary Mode)
+TARGET: Gradio 6.0+ (Implicit Messages Mode)
 """
 
 import gradio as gr
@@ -23,19 +23,24 @@ class LinguaTravelUI:
         history: List[dict]
     ) -> Tuple[str, List[dict]]:
         """
-        Handle text message using Dictionary format.
-        Gradio 6.0+ expects this format by default.
+        [Corrected] Handle text message using Dictionary format.
         """
         if not message.strip():
             return "", history
         
-        # 使用字典格式，因為 Gradio 6.0 預設只吃這個
+        # 確保 history 是列表
+        history = history or []
+        
+        # 1. 加入使用者訊息 (Dictionary 格式)
         history.append({"role": "user", "content": message})
+        
+        # 2. 加入 AI 預備訊息
         history.append({"role": "assistant", "content": ""})
         
         response = ""
         for chunk in self.ollama.generate_response(message, self.current_language):
             response += chunk
+            # 3. 更新最後一條訊息
             history[-1]["content"] = response
             yield "", history
         
@@ -46,22 +51,24 @@ class LinguaTravelUI:
         audio_path: Optional[str],
         history: List[dict]
     ) -> Tuple[str, List[dict]]:
-        """Handle audio message using Dictionary format."""
+        """
+        [Corrected] Handle audio message using Dictionary format.
+        """
         if not audio_path:
             return "", history
+            
+        history = history or []
         
         transcription = self.whisper.transcribe_audio_with_feedback(audio_path)
         
-        # 系統回饋
+        # 系統回饋 (模擬成 assistant 訊息)
         history.append({"role": "assistant", "content": f"🎤 **Voice Input Detected**\n\n{transcription}"})
         
         result = self.whisper.transcribe_audio(audio_path)
         if result.get("text") and not result.get("error"):
             user_text = result["text"]
             
-            # 使用者訊息
             history.append({"role": "user", "content": user_text})
-            # AI 回應佔位符
             history.append({"role": "assistant", "content": ""})
             
             response = ""
@@ -77,7 +84,11 @@ class LinguaTravelUI:
         phrase_key: str,
         history: List[dict]
     ) -> List[dict]:
-        """Handle quick phrase using Dictionary format."""
+        """
+        [Corrected] Handle quick phrase using Dictionary format.
+        """
+        history = history or []
+        
         phrase_template = Config.QUICK_PHRASES.get(phrase_key, "")
         if not phrase_template:
             return history
@@ -133,9 +144,9 @@ class LinguaTravelUI:
                     )
                     language_status = gr.Markdown("")
             
-            # 🔴 重點修正：
-            # 1. 移除了 type="messages" (因為 6.0.1 不支援這個參數)
-            # 2. 下方的 handle 函數使用字典格式 (因為 6.0.1 預設只支援這個格式)
+            # 🟢 關鍵修改：
+            # 1. 不加 type="messages" (避免 6.0 報錯)
+            # 2. 上面的函數全部使用 Dictionary 格式 (滿足 6.0 的資料要求)
             chatbot = gr.Chatbot(
                 label="Conversation",
                 height=400,
@@ -150,8 +161,9 @@ class LinguaTravelUI:
                         lines=1
                     )
                 with gr.Column(scale=1):
+                    # 使用 4.0+ / 6.0+ 的 sources 參數
                     audio_input = gr.Audio(
-                        sources=["microphone"], # Gradio 6.0+ 正確寫法
+                        sources=["microphone"], 
                         type="filepath",
                         label="🎤 Or speak"
                     )
@@ -183,7 +195,7 @@ class LinguaTravelUI:
             )
             
             for phrase_key, btn in quick_buttons:
-                # 使用 lambda 處理生成器串流
+                # 使用 lambda 處理生成器
                 btn.click(
                     lambda history, pk=phrase_key: self.handle_quick_phrase(pk, history),
                     inputs=[chatbot],

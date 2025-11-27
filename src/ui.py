@@ -1,186 +1,4 @@
-"""
-Gradio UI for LinguaTravel application.
-Creates an interactive interface for language learning.
-"""
-
-import gradio as gr
-from typing import List, Tuple, Optional
-from .config import Config
-from .ollama_service import OllamaService
-from .whisper_service import WhisperService
-
-
-class LinguaTravelUI:
-    """Manages the Gradio interface for the application."""
-    
-    def __init__(self, ollama_service: OllamaService, whisper_service: WhisperService):
-        """
-        Initialize the UI with services.
-        
-        Args:
-            ollama_service: Initialized Ollama service
-            whisper_service: Initialized Whisper service
-        """
-        self.ollama = ollama_service
-        self.whisper = whisper_service
-        self.current_language = "Spanish"
-        
-    def handle_text_message(
-        self, 
-        message: str, 
-        history: List[dict]
-    ) -> Tuple[str, List[dict]]:
-        """
-        Handle text message from user.
-        
-        Args:
-            message: User's text message
-            history: Chat history (list of dicts with 'role' and 'content')
-            
-        Returns:
-            tuple: (empty string for clearing input, updated history)
-        """
-        if not message.strip():
-            return "", history
-        
-        # Add user message to history
-        history.append({"role": "user", "content": message})
-        
-        # Add assistant message placeholder
-        history.append({"role": "assistant", "content": ""})
-        
-        # Generate response
-        response = ""
-        for chunk in self.ollama.generate_response(message, self.current_language):
-            response += chunk
-            # Update the last message in history with streaming response
-            history[-1]["content"] = response
-            yield "", history
-        
-        return "", history
-    
-    def handle_audio_message(
-        self,
-        audio_path: Optional[str],
-        history: List[dict]
-    ) -> Tuple[str, List[dict]]:
-        """
-        Handle audio message from user.
-        
-        Args:
-            audio_path: Path to recorded audio file
-            history: Chat history (list of dicts with 'role' and 'content')
-            
-        Returns:
-            tuple: (empty string, updated history)
-        """
-        if not audio_path:
-            return "", history
-        
-        # Transcribe audio
-        transcription = self.whisper.transcribe_audio_with_feedback(audio_path)
-        
-        # Add transcription feedback to history
-        history.append({"role": "assistant", "content": f"🎤 **Voice Input Detected**\n\n{transcription}"})
-        
-        # Extract the actual text from transcription
-        result = self.whisper.transcribe_audio(audio_path)
-        if result.get("text") and not result.get("error"):
-            user_text = result["text"]
-            
-            # Add user's transcribed message
-            history.append({"role": "user", "content": user_text})
-            
-            # Add assistant message placeholder
-            history.append({"role": "assistant", "content": ""})
-            
-            # Generate response to the transcribed text
-            response = ""
-            for chunk in self.ollama.generate_response(user_text, self.current_language):
-                response += chunk
-                history[-1]["content"] = response
-                yield "", history
-        
-        return "", history
-    
-    def handle_quick_phrase(
-        self,
-        phrase_key: str,
-        history: List[dict]
-    ) -> List[dict]:
-        """
-        Handle quick phrase button click.
-        
-        Args:
-            phrase_key: The key of the quick phrase
-            history: Chat history (list of dicts with 'role' and 'content')
-            
-        Returns:
-            list: Updated history
-        """
-        phrase_template = Config.QUICK_PHRASES.get(phrase_key, "")
-        if not phrase_template:
-            return history
-        
-        # Format with current language
-        phrase = phrase_template.replace("{language}", self.current_language)
-        
-        # Add user message to history
-        history.append({"role": "user", "content": phrase})
-        
-        # Add assistant message placeholder
-        history.append({"role": "assistant", "content": ""})
-        
-        # Generate response
-        response = ""
-        for chunk in self.ollama.generate_response(phrase, self.current_language):
-            response += chunk
-            history[-1]["content"] = response
-            yield history
-        
-        return history
-    
-    def update_language(self, language: str) -> str:
-        """
-        Update the target language for learning.
-        
-        Args:
-            language: New target language
-            
-        Returns:
-            str: Confirmation message
-        """
-        self.current_language = language
-        return f"🌍 Learning language changed to: **{language}**"
-    
-    def clear_conversation(self) -> Tuple[List, str]:
-        """
-        Clear the conversation history.
-        
-        Returns:
-            tuple: (empty history, status message)
-        """
-        self.ollama.clear_history()
-        return [], "🗑️ Conversation cleared!"
-    
-    def setup_model(self) -> str:
-        """
-        Setup/pull the Ollama model.
-        
-        Returns:
-            str: Status message
-        """
-        if self.ollama.check_model_exists():
-            return f"✅ Model '{self.ollama.model}' is already available!"
-        
-        status_messages = []
-        for status in self.ollama.pull_model():
-            status_messages.append(status)
-            yield "\n".join(status_messages)
-        
-        return "\n".join(status_messages) + "\n\n✅ Model setup complete!"
-    
-    def create_interface(self) -> gr.Blocks:
+def create_interface(self) -> gr.Blocks:
         """
         Create and configure the Gradio interface.
         
@@ -218,7 +36,8 @@ class LinguaTravelUI:
             chatbot = gr.Chatbot(
                 label="Conversation",
                 height=400,
-                show_label=True
+                show_label=True,
+                type="messages"  # 🟢 FIX 1: 明確指定 type="messages"
             )
             
             with gr.Row():
@@ -264,8 +83,9 @@ class LinguaTravelUI:
             )
             
             for phrase_key, btn in quick_buttons:
+                # 🟢 FIX 2: 移除 list()。讓它直接回傳生成器，Gradio 才能正確處理串流 (streaming)
                 btn.click(
-                    lambda history, pk=phrase_key: list(self.handle_quick_phrase(pk, history)),
+                    lambda history, pk=phrase_key: self.handle_quick_phrase(pk, history),
                     inputs=[chatbot],
                     outputs=[chatbot]
                 )

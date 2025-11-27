@@ -1,21 +1,13 @@
 """
 Gradio UI for LinguaTravel application.
-Creates an interactive interface for language learning.
-TARGET: Gradio 6.x / 4.x (Modern)
+Universal Compatibility Mode
 """
 
 import gradio as gr
-import sys
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Any
 from .config import Config
 from .ollama_service import OllamaService
 from .whisper_service import WhisperService
-
-# 🔴 DEBUG: 程式啟動時檢查版本
-print(f"🔍 Runtime Gradio Version: {gr.__version__}")
-if int(gr.__version__.split('.')[0]) < 4:
-    print("⚠️ WARNING: You are running an old version of Gradio (<4.0)!")
-    print("   Please ensure you are running the python command in the correct environment.")
 
 class LinguaTravelUI:
     """Manages the Gradio interface for the application."""
@@ -28,20 +20,26 @@ class LinguaTravelUI:
     def handle_text_message(
         self, 
         message: str, 
-        history: List[dict]
-    ) -> Tuple[str, List[dict]]:
-        """Handle text message with Dictionary format (Modern)."""
+        history: List[List[Any]]
+    ) -> Tuple[str, List[List[Any]]]:
+        """
+        Handle text message using List of Lists format (Universal compatibility).
+        """
         if not message.strip():
             return "", history
         
-        # Gradio 4.0+ history 格式為 List[Dict]
-        history.append({"role": "user", "content": message})
-        history.append({"role": "assistant", "content": ""})
+        history = history or []
+        
+        # 1. 使用 [User, None] 格式加入使用者訊息
+        # 注意：這裡用列表 [message, ""] 代表一組對話
+        history.append([message, ""])
         
         response = ""
+        # 串流生成回應
         for chunk in self.ollama.generate_response(message, self.current_language):
             response += chunk
-            history[-1]["content"] = response
+            # 更新最後一組對話的第二個元素 (AI 回應)
+            history[-1][1] = response
             yield "", history
         
         return "", history
@@ -49,25 +47,33 @@ class LinguaTravelUI:
     def handle_audio_message(
         self,
         audio_path: Optional[str],
-        history: List[dict]
-    ) -> Tuple[str, List[dict]]:
-        """Handle audio message."""
+        history: List[List[Any]]
+    ) -> Tuple[str, List[List[Any]]]:
+        """
+        Handle audio message using List of Lists format.
+        """
         if not audio_path:
             return "", history
+            
+        history = history or []
         
+        # Transcribe
         transcription = self.whisper.transcribe_audio_with_feedback(audio_path)
-        history.append({"role": "assistant", "content": f"🎤 **Voice Input Detected**\n\n{transcription}"})
+        
+        # 系統訊息：[None, 訊息] 代表系統提示
+        history.append([None, f"🎤 **Voice Input Detected**\n\n{transcription}"])
         
         result = self.whisper.transcribe_audio(audio_path)
         if result.get("text") and not result.get("error"):
             user_text = result["text"]
-            history.append({"role": "user", "content": user_text})
-            history.append({"role": "assistant", "content": ""})
+            
+            # 加入使用者識別出的文字
+            history.append([user_text, ""])
             
             response = ""
             for chunk in self.ollama.generate_response(user_text, self.current_language):
                 response += chunk
-                history[-1]["content"] = response
+                history[-1][1] = response
                 yield "", history
         
         return "", history
@@ -75,21 +81,26 @@ class LinguaTravelUI:
     def handle_quick_phrase(
         self,
         phrase_key: str,
-        history: List[dict]
-    ) -> List[dict]:
-        """Handle quick phrase button."""
+        history: List[List[Any]]
+    ) -> List[List[Any]]:
+        """
+        Handle quick phrase using List of Lists format.
+        """
+        history = history or []
+        
         phrase_template = Config.QUICK_PHRASES.get(phrase_key, "")
         if not phrase_template:
             return history
         
         phrase = phrase_template.replace("{language}", self.current_language)
-        history.append({"role": "user", "content": phrase})
-        history.append({"role": "assistant", "content": ""})
+        
+        # 加入對話
+        history.append([phrase, ""])
         
         response = ""
         for chunk in self.ollama.generate_response(phrase, self.current_language):
             response += chunk
-            history[-1]["content"] = response
+            history[-1][1] = response
             yield history
         
         return history
@@ -132,13 +143,11 @@ class LinguaTravelUI:
                     )
                     language_status = gr.Markdown("")
             
-            # Main chat interface
-            # Gradio 6.0.1 絕對支援 type="messages"
+            # 🔴 重點修正 1: 移除 type="messages"，預設接受 List of Lists
             chatbot = gr.Chatbot(
                 label="Conversation",
                 height=400,
-                show_label=True,
-                type="messages" 
+                show_label=True
             )
             
             with gr.Row():
@@ -149,7 +158,7 @@ class LinguaTravelUI:
                         lines=1
                     )
                 with gr.Column(scale=1):
-                    # Gradio 6.0.1 支援 sources=["microphone"]
+                    # 🔴 重點修正 2: 使用 sources (複數)，避開 source (單數) 的錯誤
                     audio_input = gr.Audio(
                         sources=["microphone"], 
                         type="filepath",
@@ -160,7 +169,7 @@ class LinguaTravelUI:
             with gr.Row():
                 quick_buttons = []
                 for phrase_key in Config.QUICK_PHRASES.keys():
-                    btn = gr.Button(phrase_key, size="sm")
+                    btn = gr.Button(phrase_key) # size參數也先拿掉，保險起見
                     quick_buttons.append((phrase_key, btn))
             
             with gr.Row():
@@ -183,7 +192,7 @@ class LinguaTravelUI:
             )
             
             for phrase_key, btn in quick_buttons:
-                # 移除 list()，讓 Gradio 正確處理生成器
+                # 使用 lambda 處理生成器
                 btn.click(
                     lambda history, pk=phrase_key: self.handle_quick_phrase(pk, history),
                     inputs=[chatbot],

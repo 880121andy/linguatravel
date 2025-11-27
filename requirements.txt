@@ -2,7 +2,7 @@
 # Python 3.8+ required
 
 # Core UI Framework
-gradio>=6.0.0,<7.0.0
+gradio==3.50.2
 
 # Version parsing for compatibility
 packaging>=21.0

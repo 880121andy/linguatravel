@@ -4,10 +4,90 @@ TARGET: Gradio 6.0+ (Implicit Messages Mode)
 """
 
 import gradio as gr
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union
+from packaging import version
 from .config import Config
 from .ollama_service import OllamaService
 from .whisper_service import WhisperService
+
+# Compatibility shim for Gradio 6+ vs older versions
+GRADIO_V6 = version.parse(gr.__version__) >= version.parse("6.0.0")
+
+
+def to_internal_history(history: Optional[Union[List[dict], List[Tuple[str, str]]]]) -> List[dict]:
+    """
+    Convert incoming Gradio history payloads to internal dict-list format.
+    
+    For Gradio 6+: history is already in dict format, return as-is.
+    For older Gradio: history is list of tuples [(user_msg, assistant_msg), ...],
+                      convert to [{"role": "user", "content": ...}, {"role": "assistant", "content": ...}, ...]
+    """
+    if not history:
+        return []
+    
+    if GRADIO_V6:
+        return list(history)
+    
+    # Check if already in dict format
+    if isinstance(history[0], dict) and "role" in history[0]:
+        return list(history)
+    
+    # Convert from list of tuples (legacy format)
+    internal = []
+    for item in history:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            user_msg, assistant_msg = item
+            if user_msg is not None:
+                internal.append({"role": "user", "content": str(user_msg)})
+            if assistant_msg is not None:
+                internal.append({"role": "assistant", "content": str(assistant_msg)})
+    return internal
+
+
+def to_gradio_history(history: List[dict]) -> Union[List[dict], List[Tuple[str, str]]]:
+    """
+    Convert internal dict-list history back to Gradio-compatible format.
+    
+    For Gradio 6+: return dict format as-is.
+    For older Gradio: convert to list of tuples [(user_msg, assistant_msg), ...]
+    """
+    if not history:
+        return []
+    
+    if GRADIO_V6:
+        return history
+    
+    # Convert to legacy tuple format for older Gradio
+    # Group messages into (user, assistant) pairs
+    legacy = []
+    i = 0
+    while i < len(history):
+        user_content = ""
+        assistant_content = ""
+        
+        # Collect consecutive user messages
+        while i < len(history) and history[i].get("role") == "user":
+            if user_content:
+                user_content += "\n"
+            user_content += history[i].get("content", "")
+            i += 1
+        
+        # Collect consecutive assistant messages
+        while i < len(history) and history[i].get("role") == "assistant":
+            if assistant_content:
+                assistant_content += "\n"
+            assistant_content += history[i].get("content", "")
+            i += 1
+        
+        # Only add if we have at least one message
+        if user_content or assistant_content:
+            legacy.append((user_content, assistant_content))
+        
+        # Handle any unexpected role by skipping
+        if i < len(history) and history[i].get("role") not in ("user", "assistant"):
+            i += 1
+    
+    return legacy
 
 class LinguaTravelUI:
     """Manages the Gradio interface for the application."""
@@ -25,11 +105,11 @@ class LinguaTravelUI:
         """
         [Corrected] Handle text message using Dictionary format.
         """
-        if not message.strip():
-            return "", history
+        # Convert incoming history to internal format
+        history = to_internal_history(history)
         
-        # 確保 history 是列表
-        history = history or []
+        if not message.strip():
+            return "", to_gradio_history(history)
         
         # 1. 加入使用者訊息 (Dictionary 格式)
         history.append({"role": "user", "content": message})
@@ -42,9 +122,9 @@ class LinguaTravelUI:
             response += chunk
             # 3. 更新最後一條訊息
             history[-1]["content"] = response
-            yield "", history
+            yield "", to_gradio_history(history)
         
-        return "", history
+        return "", to_gradio_history(history)
     
     def handle_audio_message(
         self,
@@ -54,10 +134,11 @@ class LinguaTravelUI:
         """
         [Corrected] Handle audio message using Dictionary format.
         """
+        # Convert incoming history to internal format
+        history = to_internal_history(history)
+        
         if not audio_path:
-            return "", history
-            
-        history = history or []
+            return "", to_gradio_history(history)
         
         transcription = self.whisper.transcribe_audio_with_feedback(audio_path)
         
@@ -75,9 +156,9 @@ class LinguaTravelUI:
             for chunk in self.ollama.generate_response(user_text, self.current_language):
                 response += chunk
                 history[-1]["content"] = response
-                yield "", history
+                yield "", to_gradio_history(history)
         
-        return "", history
+        return "", to_gradio_history(history)
     
     def handle_quick_phrase(
         self,
@@ -87,11 +168,12 @@ class LinguaTravelUI:
         """
         [Corrected] Handle quick phrase using Dictionary format.
         """
-        history = history or []
+        # Convert incoming history to internal format
+        history = to_internal_history(history)
         
         phrase_template = Config.QUICK_PHRASES.get(phrase_key, "")
         if not phrase_template:
-            return history
+            return to_gradio_history(history)
         
         phrase = phrase_template.replace("{language}", self.current_language)
         
@@ -102,9 +184,9 @@ class LinguaTravelUI:
         for chunk in self.ollama.generate_response(phrase, self.current_language):
             response += chunk
             history[-1]["content"] = response
-            yield history
+            yield to_gradio_history(history)
         
-        return history
+        return to_gradio_history(history)
     
     def update_language(self, language: str) -> str:
         self.current_language = language

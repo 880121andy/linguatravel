@@ -1,27 +1,26 @@
 """
 Gradio UI for LinguaTravel application.
 Creates an interactive interface for language learning.
-Fixed for Gradio 3.x compatibility (Mixed Syntax)
+TARGET: Gradio 6.x / 4.x (Modern)
 """
 
 import gradio as gr
-from typing import List, Tuple, Optional, Any
+import sys
+from typing import List, Tuple, Optional
 from .config import Config
 from .ollama_service import OllamaService
 from .whisper_service import WhisperService
 
+# 🔴 DEBUG: 程式啟動時檢查版本
+print(f"🔍 Runtime Gradio Version: {gr.__version__}")
+if int(gr.__version__.split('.')[0]) < 4:
+    print("⚠️ WARNING: You are running an old version of Gradio (<4.0)!")
+    print("   Please ensure you are running the python command in the correct environment.")
 
 class LinguaTravelUI:
     """Manages the Gradio interface for the application."""
     
     def __init__(self, ollama_service: OllamaService, whisper_service: WhisperService):
-        """
-        Initialize the UI with services.
-        
-        Args:
-            ollama_service: Initialized Ollama service
-            whisper_service: Initialized Whisper service
-        """
         self.ollama = ollama_service
         self.whisper = whisper_service
         self.current_language = "Spanish"
@@ -29,25 +28,20 @@ class LinguaTravelUI:
     def handle_text_message(
         self, 
         message: str, 
-        history: List[List[Any]]
-    ) -> Tuple[str, List[List[Any]]]:
-        """
-        Handle text message from user.
-        """
+        history: List[dict]
+    ) -> Tuple[str, List[dict]]:
+        """Handle text message with Dictionary format (Modern)."""
         if not message.strip():
             return "", history
         
-        history = history or []
+        # Gradio 4.0+ history 格式為 List[Dict]
+        history.append({"role": "user", "content": message})
+        history.append({"role": "assistant", "content": ""})
         
-        # [Legacy Format] Append [User Message, Placeholder]
-        history.append([message, ""])
-        
-        # Generate response
         response = ""
         for chunk in self.ollama.generate_response(message, self.current_language):
             response += chunk
-            # Update the AI response part of the last tuple
-            history[-1][1] = response
+            history[-1]["content"] = response
             yield "", history
         
         return "", history
@@ -55,35 +49,25 @@ class LinguaTravelUI:
     def handle_audio_message(
         self,
         audio_path: Optional[str],
-        history: List[List[Any]]
-    ) -> Tuple[str, List[List[Any]]]:
-        """
-        Handle audio message from user.
-        """
+        history: List[dict]
+    ) -> Tuple[str, List[dict]]:
+        """Handle audio message."""
         if not audio_path:
             return "", history
-            
-        history = history or []
         
-        # Transcribe audio
         transcription = self.whisper.transcribe_audio_with_feedback(audio_path)
+        history.append({"role": "assistant", "content": f"🎤 **Voice Input Detected**\n\n{transcription}"})
         
-        # [Legacy Format] Use [None, Message] to show a system/status message
-        history.append([None, f"🎤 **Voice Input Detected**\n\n{transcription}"])
-        
-        # Extract the actual text from transcription
         result = self.whisper.transcribe_audio(audio_path)
         if result.get("text") and not result.get("error"):
             user_text = result["text"]
+            history.append({"role": "user", "content": user_text})
+            history.append({"role": "assistant", "content": ""})
             
-            # [Legacy Format] Append [User Text, Placeholder]
-            history.append([user_text, ""])
-            
-            # Generate response to the transcribed text
             response = ""
             for chunk in self.ollama.generate_response(user_text, self.current_language):
                 response += chunk
-                history[-1][1] = response
+                history[-1]["content"] = response
                 yield "", history
         
         return "", history
@@ -91,44 +75,34 @@ class LinguaTravelUI:
     def handle_quick_phrase(
         self,
         phrase_key: str,
-        history: List[List[Any]]
-    ) -> List[List[Any]]:
-        """
-        Handle quick phrase button click.
-        """
-        history = history or []
-        
+        history: List[dict]
+    ) -> List[dict]:
+        """Handle quick phrase button."""
         phrase_template = Config.QUICK_PHRASES.get(phrase_key, "")
         if not phrase_template:
             return history
         
-        # Format with current language
         phrase = phrase_template.replace("{language}", self.current_language)
+        history.append({"role": "user", "content": phrase})
+        history.append({"role": "assistant", "content": ""})
         
-        # [Legacy Format] Append [User Message, Placeholder]
-        history.append([phrase, ""])
-        
-        # Generate response
         response = ""
         for chunk in self.ollama.generate_response(phrase, self.current_language):
             response += chunk
-            history[-1][1] = response
+            history[-1]["content"] = response
             yield history
         
         return history
     
     def update_language(self, language: str) -> str:
-        """Update the target language for learning."""
         self.current_language = language
         return f"🌍 Learning language changed to: **{language}**"
     
     def clear_conversation(self) -> Tuple[List, str]:
-        """Clear the conversation history."""
         self.ollama.clear_history()
         return [], "🗑️ Conversation cleared!"
     
     def setup_model(self) -> str:
-        """Setup/pull the Ollama model."""
         if self.ollama.check_model_exists():
             return f"✅ Model '{self.ollama.model}' is already available!"
         
@@ -140,7 +114,6 @@ class LinguaTravelUI:
         return "\n".join(status_messages) + "\n\n✅ Model setup complete!"
     
     def create_interface(self) -> gr.Blocks:
-        """Create and configure the Gradio interface."""
         with gr.Blocks(title=Config.APP_TITLE) as interface:
             
             gr.Markdown(f"# {Config.APP_TITLE}")
@@ -150,7 +123,6 @@ class LinguaTravelUI:
                 with gr.Column(scale=2):
                     ollama_status = gr.Markdown(self.ollama.get_status_message())
                     whisper_status = gr.Markdown(self.whisper.get_status())
-                    
                 with gr.Column(scale=1):
                     language_selector = gr.Dropdown(
                         choices=Config.SUPPORTED_LANGUAGES,
@@ -161,11 +133,12 @@ class LinguaTravelUI:
                     language_status = gr.Markdown("")
             
             # Main chat interface
+            # Gradio 6.0.1 絕對支援 type="messages"
             chatbot = gr.Chatbot(
                 label="Conversation",
                 height=400,
-                show_label=True
-                # 這裡不需要 type="messages" (相容舊版)
+                show_label=True,
+                type="messages" 
             )
             
             with gr.Row():
@@ -176,21 +149,20 @@ class LinguaTravelUI:
                         lines=1
                     )
                 with gr.Column(scale=1):
+                    # Gradio 6.0.1 支援 sources=["microphone"]
                     audio_input = gr.Audio(
-                        sources=["microphone"], # 修正：這裡改回 sources，符合你的版本
+                        sources=["microphone"], 
                         type="filepath",
                         label="🎤 Or speak"
                     )
             
-            # Quick phrase buttons
             gr.Markdown("### 🚀 Quick Phrases")
             with gr.Row():
                 quick_buttons = []
                 for phrase_key in Config.QUICK_PHRASES.keys():
-                    btn = gr.Button(phrase_key) 
+                    btn = gr.Button(phrase_key, size="sm")
                     quick_buttons.append((phrase_key, btn))
             
-            # Action buttons
             with gr.Row():
                 clear_btn = gr.Button("🗑️ Clear Conversation", variant="secondary")
                 setup_model_btn = gr.Button("📥 Setup Model", variant="primary")
@@ -211,6 +183,7 @@ class LinguaTravelUI:
             )
             
             for phrase_key, btn in quick_buttons:
+                # 移除 list()，讓 Gradio 正確處理生成器
                 btn.click(
                     lambda history, pk=phrase_key: self.handle_quick_phrase(pk, history),
                     inputs=[chatbot],

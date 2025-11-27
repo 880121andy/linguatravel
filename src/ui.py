@@ -1,6 +1,6 @@
 """
 Gradio UI for LinguaTravel application.
-TARGET: Gradio 6.0+ (Implicit Messages Mode)
+TARGET: Gradio 3.50.2 (with backwards compatibility for v6/v7 history formats)
 """
 
 import gradio as gr
@@ -11,7 +11,11 @@ from .ollama_service import OllamaService
 from .whisper_service import WhisperService
 from .utils.history import normalize_history
 
+# Import the compatibility shim for handling v6/v7 history formats in v3
+from utils.gradio_compat import ensure_chat_history_compatible
+
 # Compatibility shim for Gradio 6+ vs older versions
+# Gradio 3.50.2 is the target version, so this will be False
 GRADIO_V6 = version.parse(gr.__version__) >= version.parse("6.0.0")
 
 
@@ -20,9 +24,10 @@ def to_internal_history(history: Optional[Any]) -> List[dict]:
     Convert incoming Gradio history payloads to internal dict-list format.
     
     Accepts various formats including:
+    - Gradio 3.x format: list of (user_msg, bot_msg) tuples
     - Gradio 6.x format: list of [user_msg, bot_msg] pairs
     - Gradio 7.x format: list of dicts with role/content keys
-    - Other formats: normalized first via normalize_history()
+    - Other formats: normalized first via ensure_chat_history_compatible()
     
     Returns:
         List of dicts with "role" and "content" keys.
@@ -38,9 +43,9 @@ def to_internal_history(history: Optional[Any]) -> List[dict]:
     if isinstance(history[0], dict) and "role" in history[0]:
         return list(history)
     
-    # Normalize the history first to Gradio 6.x format (list of [user, bot] pairs)
-    # This handles various input formats including v7 dicts, tuples, etc.
-    normalized = normalize_history(history)
+    # Use the compatibility shim to normalize any format to v3 (list of (user, bot) tuples)
+    # Then convert to internal dict format
+    normalized = ensure_chat_history_compatible(history)
     
     # Convert normalized pairs to internal dict format
     internal = []

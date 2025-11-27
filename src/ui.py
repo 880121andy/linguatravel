@@ -30,6 +30,10 @@ def to_internal_history(history: Optional[Any]) -> List[dict]:
     if not history:
         return []
     
+    # Ensure history is a list/iterable with at least one item
+    if not isinstance(history, (list, tuple)) or len(history) == 0:
+        return []
+    
     # Check if already in internal dict format (role/content dicts)
     if isinstance(history[0], dict) and "role" in history[0]:
         return list(history)

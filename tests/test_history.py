@@ -93,7 +93,7 @@ class TestNormalizeHistory:
             {"role": "assistant", "content": "Good!"},
         ]
         result = normalize_history(history)
-        # Each role/content dict becomes its own pair
+        # Each role/content dict becomes a separate pair with one empty element
         assert len(result) == 4
         assert result[0] == ["Hello", ""]
         assert result[1] == ["", "Hi!"]
